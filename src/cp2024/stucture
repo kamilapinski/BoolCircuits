@@ -1,0 +1,15 @@
+jezeli napotykam typ który jest rozgałęzieniem, to wtedy tworzę nowe wątki do każdego rozgałęzienia,
+Oprócz jednego. Do jednego pójdzie ten wątek macierzysty.
+
+CircuitRunnable
+- do AND, OR potrzebuje CountDownLatchów (wątki pochodne mogą latchować, gdy osiągną odpowiednią wartość)
+- do GT też potrzebny CountDownLatch (wątki pochodne uderzają jeśli true)
+- do LT też potrzebny CountDownLatch (wątki pochodne uderzają jeśli false)
+
+czyli do wszystkiego
+można to pogrupować:
+- OR, GT (oczekują na true)
+- AND, LT (oczekują na false)
+
+OR to szczególny przypadek GT
+AND to szczególny przypadek LT
