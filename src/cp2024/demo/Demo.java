@@ -3,10 +3,11 @@ package cp2024.demo;
 import cp2024.circuit.*;
 // import cp2024.mp249046.ParallelCircuitSolver;
 import java.time.Duration;
+import cp2024.solution.*;
 
 public class Demo {
     public static void main(String[] args) throws InterruptedException {
-        // CircuitSolver solver = new ParallelCircuitSolver();
+        //CircuitSolver solver = new ParallelCircuitSolver();
         CircuitSolver solver = new SequentialSolver();
 
         Circuit c = new Circuit(CircuitNode.mk(true));

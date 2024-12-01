@@ -1,15 +1,41 @@
-jezeli napotykam typ który jest rozgałęzieniem, to wtedy tworzę nowe wątki do każdego rozgałęzienia,
-Oprócz jednego. Do jednego pójdzie ten wątek macierzysty.
+Dla następującej struktury programu zrób testy jednostkowe w junit (do klas Parallel):
 
-CircuitRunnable
-- do AND, OR potrzebuje CountDownLatchów (wątki pochodne mogą latchować, gdy osiągną odpowiednią wartość)
-- do GT też potrzebny CountDownLatch (wątki pochodne uderzają jeśli true)
-- do LT też potrzebny CountDownLatch (wątki pochodne uderzają jeśli false)
+pakiet circuit:
 
-czyli do wszystkiego
-można to pogrupować:
-- OR, GT (oczekują na true)
-- AND, LT (oczekują na false)
+public class Circuit {
+    public Circuit(CircuitNode root);
+    public final CircuitNode getRoot();
+}
 
-OR to szczególny przypadek GT
-AND to szczególny przypadek LT
+public abstract sealed class CircuitNode permits SimpleNode, LeafNode, ThresholdNode {
+    public final NodeType getType();
+    public CircuitNode[] getArgs() throws InterruptedException;
+    protected CircuitNode(NodeType t, CircuitNode[] args);
+    /** Convenience function for creating circuit nodes. See demo. */
+    public static CircuitNode mk(NodeType type, CircuitNode... args);
+    public static CircuitNode mk(NodeType type, int threshold, CircuitNode... args);
+    public static CircuitNode mk(boolean value);
+    public static CircuitNode mk(boolean value, Duration duration);
+}
+
+public interface CircuitSolver {
+    public CircuitValue solve(Circuit c);
+    public void stop();
+}
+
+public abstract non-sealed class LeafNode extends CircuitNode;
+
+public enum NodeType {
+    LEAF, GT, LT, AND, OR, NOT, IF
+}
+
+/** A circuit node of type NOT, AND, OR, or IF. */
+public final class SimpleNode extends CircuitNode;
+
+public final class ThresholdNode extends CircuitNode;
+
+Pakiet solution:
+
+public class ParallelCircuitSolver implements CircuitSolver;
+
+public class ParallelCircuitValue implements CircuitValue
