@@ -12,63 +12,107 @@ public class ParallelCircuitSolver implements CircuitSolver {
 
     private final ArrayList<ParallelCircuitValue> circuitValues;
     private final ExecutorService threadPool = Executors.newFixedThreadPool(N_THREADS);
+    private boolean isStopped;
 
     public ParallelCircuitSolver() {
         circuitValues = new ArrayList<>();
+        isStopped = false;
     }
 
     @Override
     public CircuitValue solve(Circuit c) {
         try {
+            if (isStopped) {
+                return new ParallelCircuitValue();
+            }
             CircuitNode circuitNode = c.getRoot();
             ParallelCircuitValue circuitValue = new ParallelCircuitValue(threadPool.submit(new CircuitCallable(circuitNode)));
             circuitValues.add(circuitValue);
 
             return circuitValue;
         } catch (Exception e) {
-            //TODO
-            return new BrokenCircuitValue();
+            return new ParallelCircuitValue();
         }
     }
 
     @Override
     public void stop() {
+        isStopped = true;
         threadPool.shutdownNow();
     }
 
     private static class CircuitCallable implements Callable<Boolean> {
 
+        private static final int SMALL_POOL_SIZE = 3;
         private final CircuitNode circuitNode;
-        private static final ExecutorService threadPool = Executors.newFixedThreadPool(N_THREADS);
+        private final ExecutorService executor;
 
         CircuitCallable(CircuitNode circuitNode) {
             this.circuitNode = circuitNode;
+            executor = Executors.newFixedThreadPool(N_THREADS);
         }
 
-        Future<Boolean> getNOTFutureValue(CircuitNode[] args) throws InterruptedException {
-            return threadPool.submit(() -> {
-                try {
-                    return !(new CircuitCallable(args[0])).call();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw e;
-                }
-            });
-        }
-
-        Future<Boolean> getIFFutureValue(CircuitNode[] args) throws InterruptedException {
+        Boolean getNOTFutureValue(CircuitNode[] args) throws InterruptedException {
             try {
-                Future<Boolean> conditionFuture = threadPool.submit(new CircuitCallable(args[0]));
+                return !(new CircuitCallable(args[0])).call();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            }
+        }
 
-                CircuitNode childCircuitNode;
-                if (conditionFuture.get() == Boolean.TRUE) {
-                    childCircuitNode = args[1];
-                }
-                else {
-                    childCircuitNode = args[2];
+        Boolean getIFFutureValue(CircuitNode[] args) throws InterruptedException {
+            ExecutorCompletionService<Boolean> completionService = new ExecutorCompletionService<>(executor);
+            ExecutorService tempExecutor = Executors.newFixedThreadPool(SMALL_POOL_SIZE);
+
+            try {
+                Future<Boolean> cond = tempExecutor.submit(new CircuitCallable(args[0]));
+                Future<Boolean> a = tempExecutor.submit(new CircuitCallable(args[1]));
+                Future<Boolean> b = tempExecutor.submit(new CircuitCallable(args[2]));
+
+                completionService.submit(() -> {
+                    try {
+                        if (cond.get()) {
+                            b.cancel(true);
+                            return a.get();
+                        }
+                        else {
+                            a.cancel(true);
+                            return b.get();
+                        }
+                    } catch (InterruptedException | ExecutionException e) {
+                        Thread.currentThread().interrupt();
+                        throw new InterruptedException("Thread interrupted.");
+                    }
+                });
+
+                completionService.submit(() -> {
+                    try {
+                        Boolean aResult = a.get();
+                        Boolean bResult = b.get();
+                        if (aResult.equals(bResult)) {
+                            cond.cancel(true);
+                            return aResult;
+                        } else {
+                            return cond.get() ? aResult : bResult;
+                        }
+                    } catch (InterruptedException | ExecutionException e) {
+                        Thread.currentThread().interrupt();
+                        throw new InterruptedException("Thread interrupted.");
+                    }
+                });
+
+                Future<Boolean> result = completionService.take();
+                Boolean resultBoolean;
+
+                try {
+                    resultBoolean = result.get();
+                } catch (ExecutionException e) {
+                    result = completionService.take();
+                    resultBoolean = result.get();
                 }
 
-                return threadPool.submit(new CircuitCallable(childCircuitNode));
+                return resultBoolean;
 
             } catch (ExecutionException e) {
                 Throwable cause = e.getCause();
@@ -76,116 +120,126 @@ public class ParallelCircuitSolver implements CircuitSolver {
                     Thread.currentThread().interrupt();
                     throw (InterruptedException) cause;
                 }
-                throw new RuntimeException("Unexpected exception in task execution", cause);
+                throw new InterruptedException("Thread interrupted.");
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;
+            } finally {
+                tempExecutor.shutdownNow();
+                executor.shutdownNow();
             }
         }
 
-        ArrayList<Future<Boolean>> getManyChildrenFutureValues(CircuitNode[] args) throws InterruptedException {
-            ArrayList<Future<Boolean>> childFutures = new ArrayList<>();
-            for (CircuitNode childCircuitNode : args) {
-                if (Thread.currentThread().isInterrupted()) {
-                    throw new InterruptedException("Thread interrupted.");
-                }
-                childFutures.add(threadPool.submit(new CircuitCallable(childCircuitNode)));
-            }
-            return childFutures;
-        }
+        Boolean getManyChildrenValues(CircuitNode[] args, boolean expectedValue, int expectedAmount) throws InterruptedException, ExecutionException {
+            ExecutorCompletionService<Boolean> completionService = new ExecutorCompletionService<>(executor);
 
-        Boolean getManyChildrenValues(ArrayList<Future<Boolean>> childrenFutureValues, boolean expectedValue, int expectedAmount) throws InterruptedException, ExecutionException {
-            int amount = 0;
-            for (Future<Boolean> future : childrenFutureValues) {
-                if (Thread.currentThread().isInterrupted()) {
-                    throw new InterruptedException("Thread interrupted.");
+            try {
+                for (CircuitNode childCircuitNode : args) {
+                    if (Thread.interrupted()) {
+                        executor.shutdownNow();
+                        throw new InterruptedException("Thread interrupted.");
+                    }
+                    completionService.submit(new CircuitCallable(childCircuitNode));
                 }
-                if (amount < expectedAmount) {
-                    if (future.get().equals(expectedValue)) {
+
+                int amount = 0;
+                int i = 0;
+                while (amount < expectedAmount && i < args.length) {
+                    if (Thread.interrupted()) {
+                        executor.shutdownNow();
+                        throw new InterruptedException("Thread interrupted.");
+                    }
+                    Future<Boolean> resultFuture = completionService.take();
+                    Boolean result = resultFuture.get();
+                    if (result.equals(expectedValue)) {
                         amount++;
                     }
-                } else {
-                    future.cancel(true);
+                    i++;
                 }
+
+                executor.shutdownNow();
+
+                if (amount >= expectedAmount)
+                    return expectedValue;
+                else
+                    return !expectedValue;
+            } catch (Exception e) {
+                throw new InterruptedException("Thread interrupted.");
             }
-            if (amount >= expectedAmount)
-                return expectedValue;
-            else
-                return !expectedValue;
         }
 
-        Future<Boolean> getANDFutureValue(CircuitNode[] args) throws InterruptedException {
+        Boolean getANDFutureValue(CircuitNode[] args) throws InterruptedException {
             try {
-                ArrayList<Future<Boolean>> childrenFutureValues = getManyChildrenFutureValues(args);
-                return threadPool.submit(() -> getManyChildrenValues(childrenFutureValues, false, 1));
+                return getManyChildrenValues(args, false, 1);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;
+            } catch (Exception e) {
+                throw new InterruptedException("Thread interrupted.");
             }
         }
 
-        Future<Boolean> getORFutureValue(CircuitNode[] args) throws InterruptedException {
+        Boolean getORFutureValue(CircuitNode[] args) throws InterruptedException {
             try {
-                ArrayList<Future<Boolean>> childrenFutureValues = getManyChildrenFutureValues(args);
-                return threadPool.submit(() -> getManyChildrenValues(childrenFutureValues, true, 1));
+                return getManyChildrenValues(args, true, 1);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;
+            } catch (Exception e) {
+                throw new InterruptedException("Thread interrupted.");
             }
         }
 
-        Future<Boolean> getGTFutureValue(CircuitNode[] args, int threshold) throws InterruptedException {
+        Boolean getGTFutureValue(CircuitNode[] args, int threshold) throws InterruptedException {
             try {
-                ArrayList<Future<Boolean>> childrenFutureValues = getManyChildrenFutureValues(args);
-                return threadPool.submit(() -> getManyChildrenValues(childrenFutureValues, true, threshold + 1));
+                return getManyChildrenValues(args, true, threshold + 1);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;
+            } catch (Exception e) {
+                throw new InterruptedException("Thread interrupted.");
             }
         }
 
-        Future<Boolean> getLTFutureValue(CircuitNode[] args, int threshold) throws InterruptedException {
+        Boolean getLTFutureValue(CircuitNode[] args, int threshold) throws InterruptedException {
             try {
-                ArrayList<Future<Boolean>> childrenFutureValues = getManyChildrenFutureValues(args);
                 int expectedAmount = args.length - threshold + 1;
-                return threadPool.submit(() -> !getManyChildrenValues(childrenFutureValues, false, expectedAmount));
+                return !getManyChildrenValues(args, false, expectedAmount);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;
+            } catch (Exception e) {
+                throw new InterruptedException("Thread interrupted.");
             }
         }
 
         @Override
         public Boolean call() throws InterruptedException {
             if (Thread.interrupted()) {
-                throw new InterruptedException();
+                throw new InterruptedException("Thread interrupted.");
             }
 
             try {
                 NodeType nodeType = circuitNode.getType();
                 CircuitNode[] args = circuitNode.getArgs();
 
-                Future<Boolean> value = switch (nodeType){
-                    case NodeType.LEAF -> threadPool.submit(() -> { return ((LeafNode) circuitNode).getValue(); });
-                    case NodeType.NOT -> getNOTFutureValue(args);
-                    case NodeType.IF -> getIFFutureValue(args);
-                    case NodeType.AND -> getANDFutureValue(args);
-                    case NodeType.OR -> getORFutureValue(args);
-                    case NodeType.GT -> getGTFutureValue(args, ((ThresholdNode) circuitNode).getThreshold());
-                    case NodeType.LT -> getLTFutureValue(args, ((ThresholdNode) circuitNode).getThreshold());
+                return switch (nodeType){
+                    case LEAF -> ((LeafNode) circuitNode).getValue();
+                    case NOT -> getNOTFutureValue(args);
+                    case IF -> getIFFutureValue(args);
+                    case AND -> getANDFutureValue(args);
+                    case OR -> getORFutureValue(args);
+                    case GT -> getGTFutureValue(args, ((ThresholdNode) circuitNode).getThreshold());
+                    case LT -> getLTFutureValue(args, ((ThresholdNode) circuitNode).getThreshold());
                 };
-
-                return value.get();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                    throw (InterruptedException) cause;
-                }
-                throw new RuntimeException("Unexpected exception in task execution", cause);
+            } catch (Exception e) {
+                throw new InterruptedException("Thread interrupted.");
+            }
+            finally {
+                executor.shutdownNow();
             }
         }
     }

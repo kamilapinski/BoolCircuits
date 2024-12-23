@@ -5,23 +5,39 @@ import cp2024.circuit.*;
 import java.util.concurrent.*;
 
 public class ParallelCircuitValue implements CircuitValue {
-    private final Future<Boolean> value;
+    private Future<Boolean> value;
+    private final boolean canceledBeforeStarted;
 
     public ParallelCircuitValue(Future<Boolean> value) {
         this.value = value;
+        canceledBeforeStarted = false;
+    }
+
+    public ParallelCircuitValue() {
+        canceledBeforeStarted = true;
     }
 
     @Override
     public boolean getValue() throws InterruptedException {
         try {
-            return value.get();
+            if (canceledBeforeStarted) {
+                throw new InterruptedException("Circuit Solver stopped. This value can't be calculated.");
+            } else {
+                return value.get();
+            }
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
                 throw (InterruptedException) cause;
             }
-            throw new RuntimeException("Unexpected exception in task execution", cause);
+            throw new InterruptedException();
+        }
+    }
+
+    public void stop() {
+        if (!value.isDone()) {
+            value.cancel(true);
         }
     }
 }

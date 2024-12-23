@@ -7,8 +7,8 @@ import cp2024.solution.*;
 
 public class Demo {
     public static void main(String[] args) throws InterruptedException {
-        //CircuitSolver solver = new ParallelCircuitSolver();
-        CircuitSolver solver = new SequentialSolver();
+        CircuitSolver solver = new ParallelCircuitSolver();
+        //CircuitSolver solver = new SequentialSolver();
 
         Circuit c = new Circuit(CircuitNode.mk(true));
         System.out.println("Solved: " + solver.solve(c).getValue());
