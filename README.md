@@ -1,6 +1,3 @@
-Jasne! Oto Twój tekst przepisany do **Markdown**:
-
-````markdown
 # Obwody współbieżne
 
 Obwody boolowskie reprezentują wyrażenia boolowskie przy pomocy grafów, np. wyrażenie  
@@ -198,7 +195,3 @@ Rozwiązaniem jest archiwum **`ab123456.zip`**, gdzie:
 
 9. Wszelkie pytania i uwagi powinny być umieszczone na forum Moodle dedykowanym zadaniu.
 
-```
-
-Chcesz żebym od razu przygotował dla Ciebie szablon klasy `ParallelCircuitSolver` w Javie (tak żebyś miał punkt startowy do implementacji)?
-```
