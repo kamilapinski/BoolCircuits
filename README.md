@@ -4,7 +4,11 @@ Obwody boolowskie reprezentują wyrażenia boolowskie przy pomocy grafów, np. w
 `x ∧ (x ∨ ¬y) ∧ (z ∨ y)`  
 może być przedstawione za pomocą drzewa
 
+![Drzewo 1](tree1.jpeg)
+
 lub, jeśli dopuścimy operatory dużych arności, za pomocą drzewa.
+
+![Drzewo 2](tree2.jpeg)
 
 ---
 
